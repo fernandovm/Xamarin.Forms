@@ -13,12 +13,12 @@ namespace Xamarin.Forms.Controls
 	[Issue(IssueTracker.Bugzilla, 43313, "Adding an item to ListView ItemSource has unexpected animation with different height rows and HasUnevenRows is true")]
 	public class Bugzilla43313 : TestContentPage
 	{
-		int _i;
+		public static int ItemCount;
 		ListView _listView;
 
 		protected override void Init()
 		{
-			_i = 10;
+			ItemCount = 10;
 			BindingContext = new _43313ViewModel();
 
 			var btnAdd = new Button
@@ -51,7 +51,8 @@ namespace Xamarin.Forms.Controls
 				{
 					var label = new Label { FontSize = 16, VerticalOptions = LayoutOptions.Center };
 					label.SetBinding(Label.TextProperty, "Name");
-					int height = 60 + new Random().Next(10, 100);
+					int height = 60 + new Random().Next(10, 100); 
+
 					return new ViewCell
 					{
 						Height = height,
@@ -87,11 +88,11 @@ namespace Xamarin.Forms.Controls
 		//async
 			void BtnAddOnClicked(object sender, EventArgs eventArgs)
 		{
-			string str = $"Item {_i++}";
+			string str = $"Item {Bugzilla43313.ItemCount++}";
 			var item = new _43313Model { Name = str };
 			(BindingContext as _43313ViewModel).ListViewContent.Add(item);
 
-			//await Task.Delay(1500);
+			//await Task.Delay(100);
 
 			_listView.ScrollTo(item, ScrollToPosition.End, true);
 		}
@@ -116,15 +117,11 @@ namespace Xamarin.Forms.Controls
 			public _43313ViewModel()
 			{
 				ListViewContent = new ObservableCollection<_43313Model>();
-				listViewContent.Add(new _43313Model { Name = "Item 1" });
-				listViewContent.Add(new _43313Model { Name = "Item 2" });
-				listViewContent.Add(new _43313Model { Name = "Item 3" });
-				listViewContent.Add(new _43313Model { Name = "Item 4" });
-				listViewContent.Add(new _43313Model { Name = "Item 5" });
-				listViewContent.Add(new _43313Model { Name = "Item 6" });
-				listViewContent.Add(new _43313Model { Name = "Item 7" });
-				listViewContent.Add(new _43313Model { Name = "Item 8" });
-				listViewContent.Add(new _43313Model { Name = "Item 9" });
+
+				for (int n = 0; n < Bugzilla43313.ItemCount; n++) 
+				{
+					listViewContent.Add(new _43313Model { Name = $"Item {n}" });
+				}
 			}
 
 			public ObservableCollection<_43313Model> ListViewContent

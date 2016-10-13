@@ -28,6 +28,13 @@ namespace Xamarin.Forms.Platform.iOS
 			}
 		}
 
+		public override void LayoutSubviews()
+		{
+			Debug.WriteLine($">>>>> FormsUITableView Starting LayoutSubviews");
+			base.LayoutSubviews();
+			Debug.WriteLine($">>>>> FormsUITableView Finished LayoutSubviews");
+		}
+
 		public override CGPoint ContentOffset
 		{
 			get { return base.ContentOffset; }
@@ -49,12 +56,21 @@ namespace Xamarin.Forms.Platform.iOS
 			Debug.WriteLine($">>>>> ScrollToRow finished");
 		}
 
-		 
-
 		public override void EndUpdates()
 		{
+			Debug.WriteLine($">>>>> FormsUITableView Starting EndUpdates");
 			base.EndUpdates();
+			Debug.WriteLine($">>>>> FormsUITableView Finished EndUpdates");
+
+			if (AfterEndUpdates != null) 
+			{
+				Debug.WriteLine($">>>>> Executing pending 'after end updates' action");
+				AfterEndUpdates();
+				AfterEndUpdates = null;
+			}
 		}
+
+		internal Action AfterEndUpdates { get; set;}
 
 		public override void SetNeedsLayout()
 		{
@@ -378,7 +394,17 @@ namespace Xamarin.Forms.Platform.iOS
 				return;
 			}
 
-			Scroll(e);		
+			//if (_deferScrolling)
+			//{
+			//	Control.AfterEndUpdates = () => {
+			//		_deferScrolling = false;
+			//		Scroll(e);
+			//	};
+			//}
+			//else 
+			//{ 
+				Scroll(e);
+			//}
 		}
 
 		void Scroll(ScrollToRequestedEventArgs e)
@@ -405,6 +431,7 @@ namespace Xamarin.Forms.Platform.iOS
 				}
 			}
 
+
 			//Debug.WriteLine($">>>>> ContentOffset after scroll: {Control.ContentOffset}");
 		}
 
@@ -419,12 +446,9 @@ namespace Xamarin.Forms.Platform.iOS
 				var source = _dataSource as UnevenListViewDataSource;
 				if (_shouldEstimateRowHeight)
 				{
-					var templatedItems = TemplatedItemsView.TemplatedItems;
-					if (templatedItems.Count > 0 && source != null)
+					if (source != null)
 					{
-						var estimatedHeight = source.CalculateHeightForCell(Control, templatedItems.First());
-						Control.EstimatedRowHeight = estimatedHeight;
-
+						Control.EstimatedRowHeight = source.GetEstimatedRowHeight(Control);
 						_estimatedRowHeight = true;
 					}
 					else
@@ -441,6 +465,8 @@ namespace Xamarin.Forms.Platform.iOS
 					Control.EstimatedRowHeight = 0;
 				_estimatedRowHeight = true;
 			}
+
+			Debug.WriteLine($">>>>> Control.EstimatedRowHeight is {Control.EstimatedRowHeight}");
 		}
 
 		void UpdateFooter()
@@ -554,14 +580,9 @@ namespace Xamarin.Forms.Platform.iOS
 					if (e.NewStartingIndex == -1 || groupReset)
 						goto case NotifyCollectionChangedAction.Reset;
 
-					//Debug.WriteLine($">>>>> ListViewRenderer UpdateItems 493: ContentSize Before: {Control.ContentSize}");
-					//Debug.WriteLine($">>>>> ListViewRenderer UpdateItems 493: ContentOffset: {Control.ContentOffset}");
-
-					// Keep track of the offset; we'll need to restore it if HasUnevenRows is set
-					var offset = Control.ContentOffset;
-
-					if (Element.HasUnevenRows)
+					if (Element.HasUnevenRows && Control.EstimatedRowHeight != 0) 
 					{
+						//				_deferScrolling = true;
 						UIView.AnimationsEnabled = false;
 					}
 
@@ -569,15 +590,9 @@ namespace Xamarin.Forms.Platform.iOS
 					Control.InsertRows(GetPaths(section, e.NewStartingIndex, e.NewItems.Count), UITableViewRowAnimation.Automatic);
 					Control.EndUpdates();
 
-					if (Element.HasUnevenRows)
+					if (Element.HasUnevenRows && Control.EstimatedRowHeight != 0)
 					{
-						//Debug.WriteLine($">>>>> ListViewRenderer UpdateItems 506: After EndUpdates, iOS wants ContentOffset to be {Control.ContentOffset}");
-						//Debug.WriteLine($">>>>> ListViewRenderer UpdateItems 493: ContentSize After: {Control.ContentSize}\n");
-
-						//Control.ContentOffset = offset;
 						UIView.AnimationsEnabled = true;
-
-						// TODO hartez 2016/10/12 21:23:32 See if you can determine whether the scroll to is getting started while you're still in the middle of layout/content size updates	
 					}
 
 					break;
@@ -650,6 +665,8 @@ namespace Xamarin.Forms.Platform.iOS
 		void UpdateRowHeight()
 		{
 			var rowHeight = Element.RowHeight;
+			// TODO hartez This seems suspicious; if this is iOS 7, Control.RowHeight won't be set
+			// TODO hartez Also, should Element.RowHeight and HasUnevenRows be mutually exclusive? 
 			if (Element.HasUnevenRows && rowHeight == -1 && Forms.IsiOS7OrNewer)
 			{
 				if (Forms.IsiOS8OrNewer)
@@ -696,6 +713,35 @@ namespace Xamarin.Forms.Platform.iOS
 			{
 			}
 
+			internal nfloat GetEstimatedRowHeight(UITableView table) 
+			{
+				if (List.RowHeight != -1)
+				{
+					// Not even sure we need this case; A list with HasUnevenRows and a RowHeight doesn't make a ton of sense
+					// Anyway, no need for an estimate, because the heights we'll use are known
+					return 0;
+				}
+
+				var templatedItems = TemplatedItemsView.TemplatedItems;
+
+				if (templatedItems.Count == 0)
+				{
+					// No cells to provide an estimate, use the default row height constant
+					return ListViewRenderer.DefaultRowHeight;
+				}
+
+				var firstCell = templatedItems.First();
+
+				if (firstCell.Height > 0) 
+				{
+					// Seems like we've got cells which already specify their height; since the heights are known,
+					// we don't need to use estimatedRowHeight at all; zero will disable it and use the known heights
+					return 0; 
+				}
+
+				return CalculateHeightForCell(table, firstCell);
+			}
+
 			public override nfloat GetHeightForRow(UITableView tableView, NSIndexPath indexPath)
 			{
 				var cell = GetCellForPath(indexPath);
@@ -735,18 +781,9 @@ namespace Xamarin.Forms.Platform.iOS
 					foreach (var descendant in target.Descendants())
 						descendant.ClearValue(Platform.RendererProperty);
 
-					var measuredHeight = (nfloat)req.Request.Height;
+					Debug.WriteLine($">>>>> UnevenListViewDataSource CalculateHeightForCell: returning {(nfloat)req.Request.Height}");
 
-					if (viewCell.RenderHeight > measuredHeight)
-					{
-						Debug.WriteLine($">>>>> UnevenListViewDataSource CalculateHeightForCell 700: returning {(nfloat)viewCell.RenderHeight}");
-
-						return (nfloat)viewCell.RenderHeight;
-					}
-
-					Debug.WriteLine($">>>>> UnevenListViewDataSource CalculateHeightForCell 705: returning {measuredHeight}");
-
-					return measuredHeight;
+					return (nfloat)req.Request.Height;
 				}
 				var renderHeight = cell.RenderHeight;
 				return renderHeight > 0 ? (nfloat)renderHeight : DefaultRowHeight;
@@ -763,7 +800,7 @@ namespace Xamarin.Forms.Platform.iOS
 			readonly FormsUITableViewController _uiTableViewController;
 			protected readonly ListView List;
 			IListViewController Controller => List;
-			ITemplatedItemsView<Cell> TemplatedItemsView => List;
+			protected ITemplatedItemsView<Cell> TemplatedItemsView => List;
 			bool _isDragging;
 			bool _selectionFromNative;
 
